@@ -1,20 +1,29 @@
 <?php
-$dbUrl = getenv("DATABASE_URL");
-$pdo = new PDO($dbUrl);
+require_once 'db.php';
 
-$name = $_POST['name'];
-$email = $_POST['email'];
-$message = $_POST['message'];
+try {
+    $pdo = get_db_connection();
 
-$token = bin2hex(random_bytes(16));
+    $name = $_POST['name'] ?? 'Unknown';
+    $email = $_POST['email'] ?? 'No email';
+    $message = $_POST['message'] ?? '';
 
-$stmt = $pdo->prepare("
-  INSERT INTO telegram_forms (token, name, email, message)
-  VALUES (?, ?, ?, ?)
-");
-$stmt->execute([$token, $name, $email, $message]);
+    $token = bin2hex(random_bytes(16));
 
-$botUsername = getenv("BOT_USERNAME");
+    $stmt = $pdo->prepare("
+      INSERT INTO telegram_forms (token, name, email, message)
+      VALUES (?, ?, ?, ?)
+    ");
+    $stmt->execute([$token, $name, $email, $message]);
 
-header("Location: https://t.me/$botUsername?start=$token");
-exit;
+    $botUsername = getenv("BOT_USERNAME");
+    
+    // Clean BOT_USERNAME if it's a full URL
+    $botHandle = str_replace(['https://t.me/', '/'], '', $botUsername);
+
+    header("Location: https://t.me/$botHandle?start=$token");
+    exit;
+
+} catch (Exception $e) {
+    die("❌ Error: " . $e->getMessage());
+}

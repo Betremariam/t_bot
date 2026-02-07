@@ -1,53 +1,67 @@
 <?php
+require_once 'db.php';
+
 $BOT_TOKEN = getenv("BOT_TOKEN");
-$dbUrl = getenv("DATABASE_URL");
-$pdo = new PDO($dbUrl);
 
-$update = json_decode(file_get_contents("php://input"), true);
+try {
+    $pdo = get_db_connection();
 
-if (!isset($update["message"])) exit;
+    $content = file_get_contents("php://input");
+    $update = json_decode($content, true);
 
-$chatId = $update["message"]["chat"]["id"];
-$text = $update["message"]["text"] ?? "";
+    if (!$update || !isset($update["message"])) {
+        exit;
+    }
 
-if (strpos($text, "/start") === 0) {
+    $message = $update["message"];
+    $chatId = $message["chat"]["id"];
+    $text = $message["text"] ?? "";
 
-  $parts = explode(" ", $text);
-  $token = $parts[1] ?? null;
+    if (strpos($text, "/start") === 0) {
+        $parts = explode(" ", $text);
+        $token = $parts[1] ?? null;
 
-  if (!$token) {
-    send("❌ Invalid link", $chatId);
-    exit;
-  }
+        if (!$token) {
+            send("❌ Invalid link", $chatId);
+            exit;
+        }
 
-  $stmt = $pdo->prepare("
-    SELECT * FROM telegram_forms WHERE token = ? AND used = FALSE
-  ");
-  $stmt->execute([$token]);
-  $form = $stmt->fetch(PDO::FETCH_ASSOC);
+        $stmt = $pdo->prepare("
+          SELECT * FROM telegram_forms WHERE token = ? AND used = FALSE
+        ");
+        $stmt->execute([$token]);
+        $form = $stmt->fetch();
 
-  if (!$form) {
-    send("❌ Token expired or already used", $chatId);
-    exit;
-  }
+        if (!$form) {
+            send("❌ Token expired or already used", $chatId);
+            exit;
+        }
 
-  $pdo->prepare("
-    UPDATE telegram_forms SET used = TRUE WHERE token = ?
-  ")->execute([$token]);
+        $pdo->prepare("
+          UPDATE telegram_forms SET used = TRUE WHERE token = ?
+        ")->execute([$token]);
 
-  $msg = "✅ *Form Received*\n\n";
-  $msg .= "👤 Name: {$form['name']}\n";
-  $msg .= "📧 Email: {$form['email']}\n";
-  $msg .= "📝 Message:\n{$form['message']}";
+        $msg = "✅ *Form Received*\n\n";
+        $msg .= "👤 Name: {$form['name']}\n";
+        $msg .= "📧 Email: {$form['email']}\n";
+        $msg .= "📝 Message:\n{$form['message']}";
 
-  send($msg, $chatId);
+        send($msg, $chatId);
+    }
+
+} catch (Exception $e) {
+    // Silently fail or log error to avoid Telegram retries if it's a code error
+    error_log("Bot Error: " . $e->getMessage());
 }
 
 function send($text, $chatId) {
-  global $BOT_TOKEN;
-  file_get_contents("https://api.telegram.org/bot$BOT_TOKEN/sendMessage?" . http_build_query([
-    "chat_id" => $chatId,
-    "text" => $text,
-    "parse_mode" => "Markdown"
-  ]));
+    global $BOT_TOKEN;
+    $url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage";
+    $data = [
+        "chat_id" => $chatId,
+        "text" => $text,
+        "parse_mode" => "Markdown"
+    ];
+
+    file_get_contents($url . "?" . http_build_query($data));
 }
