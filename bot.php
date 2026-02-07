@@ -4,7 +4,7 @@ require_once 'db.php';
 $BOT_TOKEN = getenv("BOT_TOKEN");
 
 if (!$BOT_TOKEN) {
-    error_log("BOT_TOKEN environment variable is not set.");
+    error_log("❌ BOT_TOKEN environment variable is not set.");
     exit;
 }
 
@@ -19,7 +19,7 @@ try {
     }
 
     // Log the incoming update for debugging
-    error_log("Bot Update: " . json_encode($update));
+    error_log("📩 Bot Update Received: " . json_encode($update));
 
     if (!isset($update["message"])) {
         exit;
@@ -38,51 +38,61 @@ try {
             exit;
         }
 
-        error_log("Processing token: " . $token);
+        error_log("🔍 Processing start token: " . $token);
 
-        $stmt = $pdo->prepare("
-          SELECT * FROM telegram_forms WHERE token = ? AND used = FALSE
-        ");
-        $stmt->execute([$token]);
-        $form = $stmt->fetch();
+        try {
+            $stmt = $pdo->prepare("
+              SELECT * FROM telegram_forms WHERE token = ? AND used = FALSE
+            ");
+            $stmt->execute([$token]);
+            $form = $stmt->fetch();
 
-        if (!$form) {
-            error_log("No unused form found for token: " . $token);
-            send("❌ <b>Link Expired</b>\nThis link has already been used or is invalid.", $chatId);
-            exit;
+            if (!$form) {
+                error_log("⚠️ No unused form found for token: " . $token);
+                send("❌ <b>Link Expired</b>\nThis link has already been used or is invalid.", $chatId);
+                exit;
+            }
+
+            error_log("✅ Found form data for token: " . $token . " - Name: " . $form['name']);
+
+            // Mark as used
+            $pdo->prepare("
+              UPDATE telegram_forms SET used = TRUE WHERE token = ?
+            ")->execute([$token]);
+
+            $msg = "✅ <b>Form Data Received</b>\n\n";
+            $msg .= "👤 <b>Name:</b> " . htmlspecialchars($form['name']) . "\n";
+            $msg .= "📧 <b>Email:</b> " . htmlspecialchars($form['email']) . "\n";
+            $msg .= "📝 <b>Message:</b> \n" . htmlspecialchars($form['message']) . "\n\n";
+            $msg .= "🕒 <i>Submitted at: " . $form['created_at'] . "</i>";
+
+            send($msg, $chatId);
+        } catch (PDOException $e) {
+            error_log("❌ Database Error during start command: " . $e->getMessage());
+            send("❌ <b>System Error:</b> Failed to retrieve data from database.", $chatId);
         }
-
-        error_log("Found form data for token: " . $token);
-
-        // Mark as used
-        $pdo->prepare("
-          UPDATE telegram_forms SET used = TRUE WHERE token = ?
-        ")->execute([$token]);
-
-        $msg = "✅ <b>Form Data Received</b>\n\n";
-        $msg .= "👤 <b>Name:</b> " . htmlspecialchars($form['name']) . "\n";
-        $msg .= "📧 <b>Email:</b> " . htmlspecialchars($form['email']) . "\n";
-        $msg .= "📝 <b>Message:</b> \n" . htmlspecialchars($form['message']) . "\n\n";
-        $msg .= "🕒 <i>Submitted at: " . $form['created_at'] . "</i>";
-
-        send($msg, $chatId);
     } else {
         send("Hello! I am ready to process your form submissions.", $chatId);
     }
 
 } catch (Exception $e) {
-    error_log("Bot Exception: " . $e->getMessage());
+    error_log("❌ Bot Exception: " . $e->getMessage());
 }
 
 function send($text, $chatId) {
     global $BOT_TOKEN;
     $url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage";
     
+    // Masked token for logging
+    $masked_url = "https://api.telegram.org/bot" . substr($BOT_TOKEN, 0, 5) . ".../sendMessage";
+    
     $postData = [
         'chat_id' => $chatId,
         'text' => $text,
         'parse_mode' => 'HTML'
     ];
+
+    error_log("📤 Sending message to $chatId via $masked_url");
 
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
@@ -93,10 +103,10 @@ function send($text, $chatId) {
     $response = curl_exec($ch);
     
     if (curl_errno($ch)) {
-        error_log('Curl Error: ' . curl_error($ch));
+        error_log('❌ Curl Error: ' . curl_error($ch));
     }
     
-    error_log("Telegram API Response: " . $response);
+    error_log("📥 Telegram API Response: " . $response);
     
     curl_close($ch);
     return $response;
