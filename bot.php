@@ -3,6 +3,11 @@ require_once 'db.php';
 
 $BOT_TOKEN = getenv("BOT_TOKEN");
 
+if (!$BOT_TOKEN) {
+    error_log("BOT_TOKEN environment variable is not set.");
+    exit;
+}
+
 try {
     $pdo = get_db_connection();
 
@@ -22,7 +27,7 @@ try {
         $token = $parts[1] ?? null;
 
         if (!$token) {
-            send("❌ Invalid link", $chatId);
+            send("👋 *Hello!* Welcome to the bot. Please use the link provided after submitting the form to see your data.", $chatId);
             exit;
         }
 
@@ -33,35 +38,52 @@ try {
         $form = $stmt->fetch();
 
         if (!$form) {
-            send("❌ Token expired or already used", $chatId);
+            send("❌ *Link Expired*\nThis link has already been used or is invalid.", $chatId);
             exit;
         }
 
+        // Mark as used
         $pdo->prepare("
           UPDATE telegram_forms SET used = TRUE WHERE token = ?
         ")->execute([$token]);
 
-        $msg = "✅ *Form Received*\n\n";
-        $msg .= "👤 Name: {$form['name']}\n";
-        $msg .= "📧 Email: {$form['email']}\n";
-        $msg .= "📝 Message:\n{$form['message']}";
+        $msg = "✅ *Form Data Received*\n\n";
+        $msg .= "👤 *Name:* " . htmlspecialchars($form['name']) . "\n";
+        $msg .= "📧 *Email:* " . htmlspecialchars($form['email']) . "\n";
+        $msg .= "📝 *Message:* \n" . htmlspecialchars($form['message']) . "\n\n";
+        $msg .= "🕒 _Submitted at: " . $form['created_at'] . "_";
 
         send($msg, $chatId);
+    } else {
+        send("Hello! I am ready to process your form submissions.", $chatId);
     }
 
 } catch (Exception $e) {
-    // Silently fail or log error to avoid Telegram retries if it's a code error
     error_log("Bot Error: " . $e->getMessage());
 }
 
 function send($text, $chatId) {
     global $BOT_TOKEN;
     $url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage";
-    $data = [
-        "chat_id" => $chatId,
-        "text" => $text,
-        "parse_mode" => "Markdown"
+    
+    $postData = [
+        'chat_id' => $chatId,
+        'text' => $text,
+        'parse_mode' => 'Markdown'
     ];
 
-    file_get_contents($url . "?" . http_build_query($data));
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    $response = curl_exec($ch);
+    
+    if (curl_errno($ch)) {
+        error_log('Curl Error: ' . curl_error($ch));
+    }
+    
+    curl_close($ch);
+    return $response;
 }
