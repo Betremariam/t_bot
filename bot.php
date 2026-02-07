@@ -14,7 +14,14 @@ try {
     $content = file_get_contents("php://input");
     $update = json_decode($content, true);
 
-    if (!$update || !isset($update["message"])) {
+    if (!$update) {
+        exit;
+    }
+
+    // Log the incoming update for debugging
+    error_log("Bot Update: " . json_encode($update));
+
+    if (!isset($update["message"])) {
         exit;
     }
 
@@ -27,9 +34,11 @@ try {
         $token = $parts[1] ?? null;
 
         if (!$token) {
-            send("👋 *Hello!* Welcome to the bot. Please use the link provided after submitting the form to see your data.", $chatId);
+            send("👋 <b>Hello!</b> Welcome to the bot. Please use the link provided after submitting the form to see your data.", $chatId);
             exit;
         }
+
+        error_log("Processing token: " . $token);
 
         $stmt = $pdo->prepare("
           SELECT * FROM telegram_forms WHERE token = ? AND used = FALSE
@@ -38,20 +47,23 @@ try {
         $form = $stmt->fetch();
 
         if (!$form) {
-            send("❌ *Link Expired*\nThis link has already been used or is invalid.", $chatId);
+            error_log("No unused form found for token: " . $token);
+            send("❌ <b>Link Expired</b>\nThis link has already been used or is invalid.", $chatId);
             exit;
         }
+
+        error_log("Found form data for token: " . $token);
 
         // Mark as used
         $pdo->prepare("
           UPDATE telegram_forms SET used = TRUE WHERE token = ?
         ")->execute([$token]);
 
-        $msg = "✅ *Form Data Received*\n\n";
-        $msg .= "👤 *Name:* " . htmlspecialchars($form['name']) . "\n";
-        $msg .= "📧 *Email:* " . htmlspecialchars($form['email']) . "\n";
-        $msg .= "📝 *Message:* \n" . htmlspecialchars($form['message']) . "\n\n";
-        $msg .= "🕒 _Submitted at: " . $form['created_at'] . "_";
+        $msg = "✅ <b>Form Data Received</b>\n\n";
+        $msg .= "👤 <b>Name:</b> " . htmlspecialchars($form['name']) . "\n";
+        $msg .= "📧 <b>Email:</b> " . htmlspecialchars($form['email']) . "\n";
+        $msg .= "📝 <b>Message:</b> \n" . htmlspecialchars($form['message']) . "\n\n";
+        $msg .= "🕒 <i>Submitted at: " . $form['created_at'] . "</i>";
 
         send($msg, $chatId);
     } else {
@@ -59,7 +71,7 @@ try {
     }
 
 } catch (Exception $e) {
-    error_log("Bot Error: " . $e->getMessage());
+    error_log("Bot Exception: " . $e->getMessage());
 }
 
 function send($text, $chatId) {
@@ -69,7 +81,7 @@ function send($text, $chatId) {
     $postData = [
         'chat_id' => $chatId,
         'text' => $text,
-        'parse_mode' => 'Markdown'
+        'parse_mode' => 'HTML'
     ];
 
     $ch = curl_init();
@@ -83,6 +95,8 @@ function send($text, $chatId) {
     if (curl_errno($ch)) {
         error_log('Curl Error: ' . curl_error($ch));
     }
+    
+    error_log("Telegram API Response: " . $response);
     
     curl_close($ch);
     return $response;
